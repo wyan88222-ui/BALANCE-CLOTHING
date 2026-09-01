@@ -368,6 +368,23 @@
   .stock-pick-row .info{font-size:13px;}
   .stock-pick-row .info b{color:var(--brown-deep);}
   .stock-pick-row .avail{font-size:12px; color:var(--muted);}
+  .size-chip{
+    padding:9px 16px;
+    border:1px solid var(--border);
+    border-radius:9px;
+    background:#fff;
+    cursor:pointer;
+    font-size:13.5px;
+    font-weight:600;
+    color:var(--brown-deep);
+    text-align:center;
+    min-width:64px;
+  }
+  .size-chip .chip-avail{display:block; font-size:11px; font-weight:500; color:var(--muted); margin-top:2px;}
+  .size-chip:hover{background:var(--tan-light);}
+  .size-chip.selected{background:var(--brown); border-color:var(--brown); color:#fff;}
+  .size-chip.selected .chip-avail{color:rgba(255,255,255,0.85);}
+  .size-chip.disabled{opacity:0.4; cursor:not-allowed;}
 
   .toast{
     position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
@@ -500,14 +517,24 @@
 <div class="modal-overlay" id="addItemModal">
   <div class="modal-box">
     <div class="modal-head"><h3>Item ရွေးမည်</h3><button class="close-x" onclick="closeModal('addItemModal')">×</button></div>
-    <input id="itemSearchBox" placeholder="🔍 name / color / size ရှာပါ" oninput="renderStockPicker()" style="margin-bottom:12px;">
-    <div class="stock-pick-list" id="stockPickList"></div>
-    <div id="pickedItemQtyBox" style="display:none; margin-top:10px;">
-      <div class="row">
-        <div class="field"><label>Qty</label><input id="pickQty" type="number" min="1" value="1"></div>
-        <button class="btn btn-primary" style="align-self:flex-end;" onclick="confirmAddItem()">Add to Voucher</button>
+
+    <div id="itemStepGroup">
+      <input id="itemSearchBox" placeholder="🔍 name / color ရှာပါ" oninput="renderItemGroups()" style="margin-bottom:12px;">
+      <div class="stock-pick-list" id="stockPickList"></div>
+    </div>
+
+    <div id="itemStepSize" style="display:none;">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="backToItemList()" style="margin-bottom:10px;">← Item List သို့</button>
+      <div class="section-title" id="sizeStepTitle" style="font-size:15px;"></div>
+      <div id="sizeChipsList" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;"></div>
+      <div id="pickedItemQtyBox" style="display:none; margin-top:6px;">
+        <div class="row">
+          <div class="field"><label>Qty</label><input id="pickQty" type="number" min="1" value="1"></div>
+          <button class="btn btn-primary" style="align-self:flex-end;" onclick="confirmAddItem()">Add to Voucher</button>
+        </div>
       </div>
     </div>
+
     <div class="receipt-divider"></div>
     <div class="section-title" style="font-size:15px;">Stock တွင်မပါသောပစ္စည်း (Custom Item)</div>
     <div class="row">
@@ -673,6 +700,14 @@ async function persist(key, data){
   }
 }
 
+async function persistAll(changes){
+  try{
+    await db.collection('shop').doc('main').set(changes, { merge: true });
+  }catch(e){
+    showToast('Sync error — Internet ချိတ်ဆက်မှု စစ်ကြည့်ပါ');
+  }
+}
+
 function renderHeader(){
   const parts = settings.shopName.split(' ');
   document.getElementById('hdrName').textContent = settings.shopName.split('\n')[0] || 'BALANCE';
@@ -808,16 +843,21 @@ function deleteStock(id){
 }
 
 /* ---------------- ORDER ITEM PICKER ---------------- */
+let currentGroupKey = null;
+
 function openAddItem(){
   pickedStockId = null;
+  currentGroupKey = null;
   document.getElementById('itemSearchBox').value='';
+  document.getElementById('itemStepGroup').style.display='block';
+  document.getElementById('itemStepSize').style.display='none';
   document.getElementById('pickedItemQtyBox').style.display='none';
   document.getElementById('customDesc').value='';
   document.getElementById('customColor').value='';
   document.getElementById('customSize').value='';
   document.getElementById('customPrice').value='';
   document.getElementById('customQty').value=1;
-  renderStockPicker();
+  renderItemGroups();
   openModal('addItemModal');
 }
 
@@ -825,33 +865,79 @@ function reservedQtyFor(stockId){
   return currentOrderItems.filter(i=>i.stockId===stockId).reduce((a,b)=>a+b.qty,0);
 }
 
-function renderStockPicker(){
+function groupKeyFor(s){
+  return (s.name||'').trim().toLowerCase() + '|' + (s.color||'').trim().toLowerCase();
+}
+
+function getStockGroups(){
+  const groups = {};
+  for(const s of stock){
+    const key = groupKeyFor(s);
+    const avail = s.qty - reservedQtyFor(s.id);
+    if(!groups[key]) groups[key] = { key, name: s.name, color: s.color, variants: [], totalAvail: 0 };
+    groups[key].variants.push(s);
+    groups[key].totalAvail += Math.max(0, avail);
+  }
+  return Object.values(groups).filter(g => g.totalAvail > 0);
+}
+
+function renderItemGroups(){
   const term = document.getElementById('itemSearchBox').value.trim().toLowerCase();
-  const list = stock.filter(s => {
-    const avail = s.qty - reservedQtyFor(s.id);
-    if(avail <= 0) return false;
-    if(!term) return true;
-    return (s.name+' '+s.color+' '+s.size).toLowerCase().includes(term);
-  });
+  let groups = getStockGroups();
+  if(term){
+    groups = groups.filter(g => (g.name+' '+g.color).toLowerCase().includes(term));
+  }
   const el = document.getElementById('stockPickList');
-  if(list.length===0){ el.innerHTML = '<div class="empty-note">ရှာမတွေ့ပါ / stock ကုန်နေပါသည်</div>'; return; }
-  el.innerHTML = list.map(s=>{
+  if(groups.length===0){ el.innerHTML = '<div class="empty-note">ရှာမတွေ့ပါ / stock ကုန်နေပါသည်</div>'; return; }
+  el.innerHTML = groups.map(g => `
+    <div class="stock-pick-row" onclick="selectItemGroup('${g.key.replace(/'/g,"\\'")}')">
+      <div class="info"><b>${escapeHtml(g.name)}</b><div class="avail">${escapeHtml(g.color||'-')} • ${g.variants.length} size</div></div>
+      <div class="avail">${g.totalAvail} left</div>
+    </div>
+  `).join('');
+}
+
+function selectItemGroup(key){
+  currentGroupKey = key;
+  pickedStockId = null;
+  document.getElementById('pickedItemQtyBox').style.display='none';
+  document.getElementById('itemStepGroup').style.display='none';
+  document.getElementById('itemStepSize').style.display='block';
+  renderSizeChips();
+}
+
+function backToItemList(){
+  currentGroupKey = null;
+  pickedStockId = null;
+  document.getElementById('itemStepSize').style.display='none';
+  document.getElementById('itemStepGroup').style.display='block';
+  renderItemGroups();
+}
+
+function renderSizeChips(){
+  const groups = getStockGroups();
+  const g = groups.find(x => x.key === currentGroupKey);
+  if(!g){ backToItemList(); return; }
+  document.getElementById('sizeStepTitle').textContent = `${g.name}${g.color ? ' — '+g.color : ''} — Size ရွေးပါ`;
+  const el = document.getElementById('sizeChipsList');
+  el.innerHTML = g.variants.map(s => {
     const avail = s.qty - reservedQtyFor(s.id);
-    return `<div class="stock-pick-row ${pickedStockId===s.id?'selected':''}" onclick="selectStock('${s.id}')">
-      <div class="info"><b>${escapeHtml(s.name)}</b><div class="avail">${escapeHtml(s.color||'-')} / ${escapeHtml(s.size||'-')} • ${fmt(s.price)} Ks</div></div>
-      <div class="avail">${avail} left</div>
+    const disabled = avail <= 0;
+    return `<div class="size-chip ${pickedStockId===s.id?'selected':''} ${disabled?'disabled':''}" ${disabled?'':`onclick="selectVariant('${s.id}')"`}>
+      ${escapeHtml(s.size||'-')}
+      <span class="chip-avail">${avail} left</span>
     </div>`;
   }).join('');
 }
 
-function selectStock(id){
+function selectVariant(id){
   pickedStockId = id;
   const s = stock.find(x=>x.id===id);
   const avail = s.qty - reservedQtyFor(id);
   document.getElementById('pickQty').max = avail;
   document.getElementById('pickQty').value = 1;
   document.getElementById('pickedItemQtyBox').style.display='block';
-  renderStockPicker();
+  renderSizeChips();
 }
 
 function confirmAddItem(){
@@ -953,11 +1039,7 @@ async function saveOrder(){
   orders.unshift(order);
   settings.voucherCounter += 1;
 
-  await persist('stock', stock);
-  await persist('orders', orders);
-  await persist('settings', settings);
-
-  // reset form
+  await persistAll({ stock, orders, settings });
   document.getElementById('ordName').value='';
   document.getElementById('ordPhone').value='';
   document.getElementById('ordAddress').value='';
@@ -1015,8 +1097,7 @@ async function cancelOrder(id){
     }
   }
   o.status = 'cancelled';
-  await persist('stock', stock);
-  await persist('orders', orders);
+  await persistAll({ stock, orders });
   renderStock();
   renderOrders();
   showToast('Voucher cancel လုပ်ပြီး stock ပြန်ပေါင်းပြီးပါပြီ');
@@ -1033,11 +1114,10 @@ async function deleteOrder(id){
         if(s) s.qty += it.qty;
       }
     }
-    await persist('stock', stock);
-    renderStock();
   }
   orders = orders.filter(x=>x.id!==id);
-  await persist('orders', orders);
+  await persistAll({ stock, orders });
+  renderStock();
   renderOrders();
   showToast('Voucher ဖျက်ပြီးပါပြီ');
 }
