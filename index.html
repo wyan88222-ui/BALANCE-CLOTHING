@@ -519,12 +519,18 @@
     <div class="modal-head"><h3>Item ရွေးမည်</h3><button class="close-x" onclick="closeModal('addItemModal')">×</button></div>
 
     <div id="itemStepGroup">
-      <input id="itemSearchBox" placeholder="🔍 name / color ရှာပါ" oninput="renderItemGroups()" style="margin-bottom:12px;">
+      <input id="itemSearchBox" placeholder="🔍 name ရှာပါ" oninput="renderNameGroups()" style="margin-bottom:12px;">
       <div class="stock-pick-list" id="stockPickList"></div>
     </div>
 
+    <div id="itemStepColor" style="display:none;">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="backToNameList()" style="margin-bottom:10px;">← Item List သို့</button>
+      <div class="section-title" id="colorStepTitle" style="font-size:15px;"></div>
+      <div id="colorChipsList" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;"></div>
+    </div>
+
     <div id="itemStepSize" style="display:none;">
-      <button type="button" class="btn btn-ghost btn-sm" onclick="backToItemList()" style="margin-bottom:10px;">← Item List သို့</button>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="backToColorList()" style="margin-bottom:10px;">← Color ရွေးရန်</button>
       <div class="section-title" id="sizeStepTitle" style="font-size:15px;"></div>
       <div id="sizeChipsList" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;"></div>
       <div id="pickedItemQtyBox" style="display:none; margin-top:6px;">
@@ -805,53 +811,78 @@ async function addStock(){
   showToast(`Stock ထည့်ပြီးပါပြီ (${entries.length} size)`);
 }
 
-const expandedStockGroups = new Set();
+const expandedStockNames = new Set();
+const expandedStockColors = new Set();
 
-function toggleStockGroup(key){
-  if(expandedStockGroups.has(key)) expandedStockGroups.delete(key);
-  else expandedStockGroups.add(key);
+function toggleStockName(nameKey){
+  if(expandedStockNames.has(nameKey)) expandedStockNames.delete(nameKey);
+  else expandedStockNames.add(nameKey);
   renderStock();
 }
 
-function getStockGroupsRaw(){
-  const groups = {};
+function toggleStockColor(key){
+  if(expandedStockColors.has(key)) expandedStockColors.delete(key);
+  else expandedStockColors.add(key);
+  renderStock();
+}
+
+function getStockTree(){
+  const tree = {};
   for(const s of stock){
-    const key = groupKeyFor(s);
-    if(!groups[key]) groups[key] = { key, name: s.name, color: s.color, variants: [], totalQty: 0 };
-    groups[key].variants.push(s);
-    groups[key].totalQty += s.qty;
+    const nameKey = (s.name||'').trim().toLowerCase();
+    if(!tree[nameKey]) tree[nameKey] = { nameKey, name: s.name, colors: {}, totalQty: 0 };
+    const colorKey = (s.color||'').trim().toLowerCase();
+    if(!tree[nameKey].colors[colorKey]) tree[nameKey].colors[colorKey] = { colorKey, color: s.color, variants: [], totalQty: 0 };
+    tree[nameKey].colors[colorKey].variants.push(s);
+    tree[nameKey].colors[colorKey].totalQty += s.qty;
+    tree[nameKey].totalQty += s.qty;
   }
-  return Object.values(groups);
+  return tree;
 }
 
 function renderStock(){
   const el = document.getElementById('stockList');
   if(stock.length === 0){ el.innerHTML = '<div class="empty-note">Stock မရှိသေးပါ</div>'; return; }
-  const groups = getStockGroupsRaw();
-  el.innerHTML = groups.map(g => {
-    const expanded = expandedStockGroups.has(g.key);
-    const variantsHtml = expanded ? g.variants.map(s => `
-      <div class="stock-item" style="margin-left:16px; background:var(--tan-light);">
-        <div class="info">
-          <b>${escapeHtml(s.size||'-')}</b>
-          <div class="tags">${fmt(s.price)} Ks</div>
+  const tree = getStockTree();
+  el.innerHTML = Object.values(tree).map(g => {
+    const nameExpanded = expandedStockNames.has(g.nameKey);
+    const colorCount = Object.keys(g.colors).length;
+    const colorsHtml = nameExpanded ? Object.values(g.colors).map(c => {
+      const colorKey = g.nameKey + '|' + c.colorKey;
+      const colorExpanded = expandedStockColors.has(colorKey);
+      const sizesHtml = colorExpanded ? c.variants.map(s => `
+        <div class="stock-item" style="margin-left:32px; background:#fff;">
+          <div class="info">
+            <b>${escapeHtml(s.size||'-')}</b>
+            <div class="tags">${fmt(s.price)} Ks</div>
+          </div>
+          <div class="stock-qty ${s.qty<=2 ? 'low' : ''}">${s.qty}</div>
+          <div class="stock-actions">
+            <button class="icon-btn" onclick="editStock('${s.id}')" title="Edit">✎</button>
+            <button class="icon-btn danger" onclick="deleteStock('${s.id}')" title="Delete">🗑</button>
+          </div>
         </div>
-        <div class="stock-qty ${s.qty<=2 ? 'low' : ''}">${s.qty}</div>
-        <div class="stock-actions">
-          <button class="icon-btn" onclick="editStock('${s.id}')" title="Edit">✎</button>
-          <button class="icon-btn danger" onclick="deleteStock('${s.id}')" title="Delete">🗑</button>
+      `).join('') : '';
+      return `
+        <div class="stock-item" style="margin-left:16px; background:var(--tan-light); cursor:pointer;" onclick="toggleStockColor('${colorKey.replace(/'/g,"\\'")}')">
+          <div class="info">
+            <b>${escapeHtml(c.color||'-')}</b>
+            <div class="tags">${c.variants.length} size ${colorExpanded ? '▲ ပိတ်ရန်' : '▼ ကြည့်ရန်'}</div>
+          </div>
+          <div class="stock-qty ${c.totalQty<=2 ? 'low' : ''}">${c.totalQty}</div>
         </div>
-      </div>
-    `).join('') : '';
+        ${sizesHtml}
+      `;
+    }).join('') : '';
     return `
-      <div class="stock-item" style="cursor:pointer;" onclick="toggleStockGroup('${g.key.replace(/'/g,"\\'")}')">
+      <div class="stock-item" style="cursor:pointer;" onclick="toggleStockName('${g.nameKey.replace(/'/g,"\\'")}')">
         <div class="info">
           <b>${escapeHtml(g.name)}</b>
-          <div class="tags">${escapeHtml(g.color||'-')} &nbsp;•&nbsp; ${g.variants.length} size ${expanded ? '▲ ပိတ်ရန်' : '▼ ကြည့်ရန်'}</div>
+          <div class="tags">${colorCount} color ${nameExpanded ? '▲ ပိတ်ရန်' : '▼ ကြည့်ရန်'}</div>
         </div>
         <div class="stock-qty ${g.totalQty<=2 ? 'low' : ''}">${g.totalQty}</div>
       </div>
-      ${variantsHtml}
+      ${colorsHtml}
     `;
   }).join('');
 }
@@ -877,12 +908,15 @@ function deleteStock(id){
 
 /* ---------------- ORDER ITEM PICKER ---------------- */
 let currentGroupKey = null;
+let currentNameKey = null;
 
 function openAddItem(){
   pickedStockId = null;
   currentGroupKey = null;
+  currentNameKey = null;
   document.getElementById('itemSearchBox').value='';
   document.getElementById('itemStepGroup').style.display='block';
+  document.getElementById('itemStepColor').style.display='none';
   document.getElementById('itemStepSize').style.display='none';
   document.getElementById('pickedItemQtyBox').style.display='none';
   document.getElementById('customDesc').value='';
@@ -890,7 +924,7 @@ function openAddItem(){
   document.getElementById('customSize').value='';
   document.getElementById('customPrice').value='';
   document.getElementById('customQty').value=1;
-  renderItemGroups();
+  renderNameGroups();
   openModal('addItemModal');
 }
 
@@ -914,43 +948,91 @@ function getStockGroups(){
   return Object.values(groups).filter(g => g.totalAvail > 0);
 }
 
-function renderItemGroups(){
+function groupsByName(){
+  const groups = {};
+  for(const s of stock){
+    const nameKey = (s.name||'').trim().toLowerCase();
+    const avail = s.qty - reservedQtyFor(s.id);
+    if(!groups[nameKey]) groups[nameKey] = { nameKey, name: s.name, colors: {}, totalAvail: 0 };
+    const colorKey = (s.color||'').trim().toLowerCase();
+    if(!groups[nameKey].colors[colorKey]) groups[nameKey].colors[colorKey] = { colorKey, color: s.color, variants: [], totalAvail: 0 };
+    groups[nameKey].colors[colorKey].variants.push(s);
+    groups[nameKey].colors[colorKey].totalAvail += Math.max(0, avail);
+    groups[nameKey].totalAvail += Math.max(0, avail);
+  }
+  return groups;
+}
+
+function renderNameGroups(){
   const term = document.getElementById('itemSearchBox').value.trim().toLowerCase();
-  let groups = getStockGroups();
+  const groups = Object.values(groupsByName()).filter(g => g.totalAvail > 0);
+  let list = groups;
   if(term){
-    groups = groups.filter(g => (g.name+' '+g.color).toLowerCase().includes(term));
+    list = list.filter(g => g.name.toLowerCase().includes(term));
   }
   const el = document.getElementById('stockPickList');
-  if(groups.length===0){ el.innerHTML = '<div class="empty-note">ရှာမတွေ့ပါ / stock ကုန်နေပါသည်</div>'; return; }
-  el.innerHTML = groups.map(g => `
-    <div class="stock-pick-row" onclick="selectItemGroup('${g.key.replace(/'/g,"\\'")}')">
-      <div class="info"><b>${escapeHtml(g.name)}</b><div class="avail">${escapeHtml(g.color||'-')} • ${g.variants.length} size</div></div>
+  if(list.length===0){ el.innerHTML = '<div class="empty-note">ရှာမတွေ့ပါ / stock ကုန်နေပါသည်</div>'; return; }
+  el.innerHTML = list.map(g => {
+    const colorCount = Object.keys(g.colors).length;
+    return `<div class="stock-pick-row" onclick="selectNameGroup('${g.nameKey.replace(/'/g,"\\'")}')">
+      <div class="info"><b>${escapeHtml(g.name)}</b><div class="avail">${colorCount} color</div></div>
       <div class="avail">${g.totalAvail} left</div>
+    </div>`;
+  }).join('');
+}
+
+function selectNameGroup(nameKey){
+  currentNameKey = nameKey;
+  document.getElementById('itemStepGroup').style.display='none';
+  document.getElementById('itemStepColor').style.display='block';
+  document.getElementById('itemStepSize').style.display='none';
+  renderColorChips();
+}
+
+function backToNameList(){
+  currentNameKey = null;
+  document.getElementById('itemStepColor').style.display='none';
+  document.getElementById('itemStepSize').style.display='none';
+  document.getElementById('itemStepGroup').style.display='block';
+  renderNameGroups();
+}
+
+function renderColorChips(){
+  const groups = groupsByName();
+  const g = groups[currentNameKey];
+  if(!g){ backToNameList(); return; }
+  document.getElementById('colorStepTitle').textContent = `${g.name} — Color ရွေးပါ`;
+  const el = document.getElementById('colorChipsList');
+  const colors = Object.values(g.colors).filter(c => c.totalAvail > 0);
+  el.innerHTML = colors.map(c => `
+    <div class="size-chip" onclick="selectColorGroup('${c.colorKey.replace(/'/g,"\\'")}')">
+      ${escapeHtml(c.color || '-')}
+      <span class="chip-avail">${c.totalAvail} left</span>
     </div>
   `).join('');
 }
 
-function selectItemGroup(key){
-  currentGroupKey = key;
+function selectColorGroup(colorKey){
+  currentGroupKey = currentNameKey + '|' + colorKey;
   pickedStockId = null;
   document.getElementById('pickedItemQtyBox').style.display='none';
-  document.getElementById('itemStepGroup').style.display='none';
+  document.getElementById('itemStepColor').style.display='none';
   document.getElementById('itemStepSize').style.display='block';
   renderSizeChips();
 }
 
-function backToItemList(){
+function backToColorList(){
   currentGroupKey = null;
   pickedStockId = null;
   document.getElementById('itemStepSize').style.display='none';
-  document.getElementById('itemStepGroup').style.display='block';
-  renderItemGroups();
+  document.getElementById('itemStepColor').style.display='block';
+  renderColorChips();
 }
 
 function renderSizeChips(){
   const groups = getStockGroups();
   const g = groups.find(x => x.key === currentGroupKey);
-  if(!g){ backToItemList(); return; }
+  if(!g){ backToColorList(); return; }
   document.getElementById('sizeStepTitle').textContent = `${g.name}${g.color ? ' — '+g.color : ''} — Size ရွေးပါ`;
   const el = document.getElementById('sizeChipsList');
   el.innerHTML = g.variants.map(s => {
@@ -1155,6 +1237,45 @@ async function deleteOrder(id){
   showToast('Voucher ဖျက်ပြီးပါပြီ');
 }
 
+async function returnItem(orderId, idx){
+  const o = orders.find(x=>x.id===orderId);
+  if(!o || o.status!=='active') return;
+  const it = o.items[idx];
+  if(!it) return;
+  const input = prompt(`"${it.name}" (${it.color||'-'}/${it.size||'-'}) — ပြန်ပို့မည့် qty (အများဆုံး ${it.qty}):`, it.qty);
+  if(input === null) return;
+  const qty = Number(input);
+  if(!qty || qty < 1 || qty > it.qty){ showToast('Qty မှားနေပါသည်'); return; }
+
+  if(it.stockId){
+    const s = stock.find(x=>x.id===it.stockId);
+    if(s) s.qty += qty;
+  }
+
+  it.qty -= qty;
+  if(it.qty <= 0){
+    o.items.splice(idx, 1);
+  }
+
+  const itemsTotal = o.items.reduce((a,b)=>a+b.price*b.qty,0);
+  o.itemsTotal = itemsTotal;
+  o.total = itemsTotal;
+  o.balanceDue = itemsTotal - (o.deposit || 0);
+  if(o.items.length === 0){
+    o.status = 'cancelled';
+  }
+
+  await persistAll({ stock, orders });
+  renderStock();
+  renderOrders();
+  if(o.status === 'active'){
+    viewOrder(orderId);
+  }else{
+    closeModal('detailModal');
+  }
+  showToast('ပစ္စည်း ပြန်လက်ခံပြီး stock ပြန်ပေါင်းပြီးပါပြီ');
+}
+
 function viewOrder(id){
   const o = orders.find(x=>x.id===id);
   if(!o) return;
@@ -1162,10 +1283,13 @@ function viewOrder(id){
   const itemsTotal = o.itemsTotal !== undefined ? o.itemsTotal : o.total;
   const deposit = o.deposit || 0;
   const balance = o.balanceDue !== undefined ? o.balanceDue : (itemsTotal - deposit);
-  const itemsHtml = o.items.map(it=>`
+  const itemsHtml = o.items.map((it,idx)=>`
     <div class="receipt-item">
       <div class="desc"><b>${escapeHtml(it.name)}</b><div class="tags">${escapeHtml(it.color||'-')} / ${escapeHtml(it.size||'-')} × ${it.qty}</div></div>
-      <div>${fmt(it.price*it.qty)} Ks</div>
+      <div style="text-align:right;">
+        <div>${fmt(it.price*it.qty)} Ks</div>
+        ${o.status==='active' ? `<button class="btn btn-outline btn-sm" style="margin-top:4px;" onclick="returnItem('${o.id}', ${idx})">↩ ပြန်ရန်</button>` : ''}
+      </div>
     </div>
   `).join('');
   document.getElementById('detailContent').innerHTML = `
