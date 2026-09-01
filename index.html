@@ -805,22 +805,55 @@ async function addStock(){
   showToast(`Stock ထည့်ပြီးပါပြီ (${entries.length} size)`);
 }
 
+const expandedStockGroups = new Set();
+
+function toggleStockGroup(key){
+  if(expandedStockGroups.has(key)) expandedStockGroups.delete(key);
+  else expandedStockGroups.add(key);
+  renderStock();
+}
+
+function getStockGroupsRaw(){
+  const groups = {};
+  for(const s of stock){
+    const key = groupKeyFor(s);
+    if(!groups[key]) groups[key] = { key, name: s.name, color: s.color, variants: [], totalQty: 0 };
+    groups[key].variants.push(s);
+    groups[key].totalQty += s.qty;
+  }
+  return Object.values(groups);
+}
+
 function renderStock(){
   const el = document.getElementById('stockList');
   if(stock.length === 0){ el.innerHTML = '<div class="empty-note">Stock မရှိသေးပါ</div>'; return; }
-  el.innerHTML = stock.map(s => `
-    <div class="stock-item">
-      <div class="info">
-        <b>${escapeHtml(s.name)}</b>
-        <div class="tags">${escapeHtml(s.color||'-')} / ${escapeHtml(s.size||'-')} &nbsp;•&nbsp; ${fmt(s.price)} Ks</div>
+  const groups = getStockGroupsRaw();
+  el.innerHTML = groups.map(g => {
+    const expanded = expandedStockGroups.has(g.key);
+    const variantsHtml = expanded ? g.variants.map(s => `
+      <div class="stock-item" style="margin-left:16px; background:var(--tan-light);">
+        <div class="info">
+          <b>${escapeHtml(s.size||'-')}</b>
+          <div class="tags">${fmt(s.price)} Ks</div>
+        </div>
+        <div class="stock-qty ${s.qty<=2 ? 'low' : ''}">${s.qty}</div>
+        <div class="stock-actions">
+          <button class="icon-btn" onclick="editStock('${s.id}')" title="Edit">✎</button>
+          <button class="icon-btn danger" onclick="deleteStock('${s.id}')" title="Delete">🗑</button>
+        </div>
       </div>
-      <div class="stock-qty ${s.qty<=2 ? 'low' : ''}">${s.qty}</div>
-      <div class="stock-actions">
-        <button class="icon-btn" onclick="editStock('${s.id}')" title="Edit">✎</button>
-        <button class="icon-btn danger" onclick="deleteStock('${s.id}')" title="Delete">🗑</button>
+    `).join('') : '';
+    return `
+      <div class="stock-item" style="cursor:pointer;" onclick="toggleStockGroup('${g.key.replace(/'/g,"\\'")}')">
+        <div class="info">
+          <b>${escapeHtml(g.name)}</b>
+          <div class="tags">${escapeHtml(g.color||'-')} &nbsp;•&nbsp; ${g.variants.length} size ${expanded ? '▲ ပိတ်ရန်' : '▼ ကြည့်ရန်'}</div>
+        </div>
+        <div class="stock-qty ${g.totalQty<=2 ? 'low' : ''}">${g.totalQty}</div>
       </div>
-    </div>
-  `).join('');
+      ${variantsHtml}
+    `;
+  }).join('');
 }
 
 function editStock(id){
