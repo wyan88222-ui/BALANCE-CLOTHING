@@ -1276,8 +1276,46 @@ async function returnItem(orderId, idx){
   showToast('ပစ္စည်း ပြန်လက်ခံပြီး stock ပြန်ပေါင်းပြီးပါပြီ');
 }
 
+let currentViewingOrderId = null;
+let editingCustomerInfo = false;
+
 function viewOrder(id){
-  const o = orders.find(x=>x.id===id);
+  currentViewingOrderId = id;
+  editingCustomerInfo = false;
+  renderVoucherDetail();
+  openModal('detailModal');
+}
+
+function toggleEditCustomerInfo(){
+  editingCustomerInfo = true;
+  renderVoucherDetail();
+}
+
+function cancelEditCustomerInfo(){
+  editingCustomerInfo = false;
+  renderVoucherDetail();
+}
+
+async function saveCustomerInfo(){
+  const o = orders.find(x=>x.id===currentViewingOrderId);
+  if(!o) return;
+  const name = document.getElementById('editCustName').value.trim();
+  const phone = document.getElementById('editCustPhone').value.trim();
+  const address = document.getElementById('editCustAddress').value.trim();
+  if(!name){ showToast('အမည် ထည့်ပါ'); return; }
+  if(!phone){ showToast('ဖုန်းနံပါတ် ထည့်ပါ'); return; }
+  o.name = name;
+  o.phone = phone;
+  o.address = address;
+  await persist('orders', orders);
+  editingCustomerInfo = false;
+  renderVoucherDetail();
+  renderOrders();
+  showToast('အချက်အလက် ပြင်ပြီးပါပြီ');
+}
+
+function renderVoucherDetail(){
+  const o = orders.find(x=>x.id===currentViewingOrderId);
   if(!o) return;
   currentViewingVoucher = o.voucher;
   const itemsTotal = o.itemsTotal !== undefined ? o.itemsTotal : o.total;
@@ -1292,6 +1330,22 @@ function viewOrder(id){
       </div>
     </div>
   `).join('');
+
+  const customerBlock = editingCustomerInfo ? `
+    <div class="field"><label>Name</label><input id="editCustName" value="${escapeHtml(o.name)}"></div>
+    <div class="field"><label>Phone</label><input id="editCustPhone" value="${escapeHtml(o.phone)}"></div>
+    <div class="field"><label>Address</label><textarea id="editCustAddress" rows="2">${escapeHtml(o.address||'')}</textarea></div>
+    <div class="row">
+      <button class="btn btn-primary btn-block" onclick="saveCustomerInfo()">Save</button>
+      <button class="btn btn-ghost btn-block" onclick="cancelEditCustomerInfo()">Cancel</button>
+    </div>
+  ` : `
+    <div class="receipt-row"><span>Name</span><span>${escapeHtml(o.name)}</span></div>
+    <div class="receipt-row"><span>Phone</span><span>${escapeHtml(o.phone)}</span></div>
+    <div class="receipt-row"><span>Address</span><span style="text-align:right; max-width:60%;">${escapeHtml(o.address||'-')}</span></div>
+    <div style="text-align:right; margin-top:2px;"><button class="btn btn-ghost btn-sm" onclick="toggleEditCustomerInfo()">✎ Name/Phone/Address ပြင်ရန်</button></div>
+  `;
+
   document.getElementById('detailContent').innerHTML = `
     <div class="receipt">
       <div class="receipt-head">
@@ -1303,9 +1357,7 @@ function viewOrder(id){
         <div class="receipt-row"><span>Date</span><span>${new Date(o.date).toLocaleString()}</span></div>
         <div class="receipt-row"><span>Status</span><span>${o.status==='active'?'Active':'Cancelled'}</span></div>
         <div class="receipt-divider"></div>
-        <div class="receipt-row"><span>Name</span><span>${escapeHtml(o.name)}</span></div>
-        <div class="receipt-row"><span>Phone</span><span>${escapeHtml(o.phone)}</span></div>
-        <div class="receipt-row"><span>Address</span><span style="text-align:right; max-width:60%;">${escapeHtml(o.address||'-')}</span></div>
+        ${customerBlock}
         <div class="receipt-divider"></div>
         ${itemsHtml}
         <div class="receipt-divider"></div>
@@ -1315,7 +1367,6 @@ function viewOrder(id){
       </div>
     </div>
   `;
-  openModal('detailModal');
 }
 
 async function saveVoucherAsImage(){
