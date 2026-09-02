@@ -274,6 +274,8 @@
   }
   .status-active{background:#E9F0E6; color:var(--green);}
   .status-cancelled{background:#F5E4E1; color:var(--rust);}
+  .status-pending{background:#FBEBD3; color:#9A6B1E;}
+  .status-confirmed{background:#DCEBF5; color:#2C6E8F;}
   .order-bottom{
     display:flex;
     justify-content:space-between;
@@ -587,7 +589,7 @@
 </div>
 
 <script>
-let settings = { shopName:'BALANCE CLOTHING', shopAddress:'', shopPhone:'', voucherPrefix:'BAL', voucherCounter:1 };
+let settings = { shopName:'BALANCE CLOTHING', shopAddress:'', shopPhone:'', voucherPrefix:'BAL', voucherCounter:1, voucherYearMonth:'' };
 let stock = [];
 let orders = [];
 let currentOrderItems = [];
@@ -597,6 +599,12 @@ let currentViewingVoucher = null;
 
 function uid(){ return 'id_' + Date.now() + '_' + Math.random().toString(36).slice(2,8); }
 function fmt(n){ return (Number(n)||0).toLocaleString('en-US'); }
+
+function getConfirmStatus(o){
+  if(o.status !== 'active') return null;
+  const hours = (Date.now() - new Date(o.date).getTime()) / 3600000;
+  return hours >= 12 ? 'confirmed' : 'pending';
+}
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -1138,7 +1146,13 @@ async function saveOrder(){
   const total = currentOrderItems.reduce((a,b)=>a+b.price*b.qty,0);
   const deposit = Number(document.getElementById('ordDeposit').value) || 0;
   const balance = total - deposit;
-  const voucher = settings.voucherPrefix + '-' + String(settings.voucherCounter).padStart(4,'0');
+  const now = new Date();
+  const yymm = String(now.getFullYear()).slice(-2) + String(now.getMonth()+1).padStart(2,'0');
+  if(settings.voucherYearMonth !== yymm){
+    settings.voucherYearMonth = yymm;
+    settings.voucherCounter = 1;
+  }
+  const voucher = settings.voucherPrefix + '-' + yymm + '-' + String(settings.voucherCounter).padStart(4,'0');
   const order = {
     id: uid(),
     voucher,
@@ -1178,6 +1192,7 @@ function renderOrders(){
     const itemsTotal = o.itemsTotal !== undefined ? o.itemsTotal : o.total;
     const deposit = o.deposit || 0;
     const balance = o.balanceDue !== undefined ? o.balanceDue : (itemsTotal - deposit);
+    const confirmStatus = getConfirmStatus(o);
     return `
     <div class="order-card">
       <div class="order-top">
@@ -1186,7 +1201,10 @@ function renderOrders(){
           <div class="order-meta">${escapeHtml(o.name)} · ${escapeHtml(o.phone)}</div>
           <div class="order-meta">${new Date(o.date).toLocaleString()}</div>
         </div>
-        <div class="status-badge ${o.status==='active'?'status-active':'status-cancelled'}">${o.status==='active'?'Active':'Cancelled'}</div>
+        <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">
+          <div class="status-badge ${o.status==='active'?'status-active':'status-cancelled'}">${o.status==='active'?'Active':'Cancelled'}</div>
+          ${confirmStatus ? `<div class="status-badge ${confirmStatus==='pending'?'status-pending':'status-confirmed'}">${confirmStatus==='pending'?'Pending':'Confirmed'}</div>` : ''}
+        </div>
       </div>
       ${deposit>0 ? `<div class="order-meta" style="margin-top:6px;">ပစ္စည်းစုစုပေါင်း ${fmt(itemsTotal)} Ks &nbsp;•&nbsp; စရံ ${fmt(deposit)} Ks</div>` : ''}
       <div class="order-bottom">
@@ -1302,11 +1320,15 @@ async function saveCustomerInfo(){
   const name = document.getElementById('editCustName').value.trim();
   const phone = document.getElementById('editCustPhone').value.trim();
   const address = document.getElementById('editCustAddress').value.trim();
+  const deposit = Number(document.getElementById('editCustDeposit').value) || 0;
   if(!name){ showToast('အမည် ထည့်ပါ'); return; }
   if(!phone){ showToast('ဖုန်းနံပါတ် ထည့်ပါ'); return; }
+  const itemsTotal = o.itemsTotal !== undefined ? o.itemsTotal : o.total;
   o.name = name;
   o.phone = phone;
   o.address = address;
+  o.deposit = deposit;
+  o.balanceDue = itemsTotal - deposit;
   await persist('orders', orders);
   editingCustomerInfo = false;
   renderVoucherDetail();
@@ -1321,12 +1343,13 @@ function renderVoucherDetail(){
   const itemsTotal = o.itemsTotal !== undefined ? o.itemsTotal : o.total;
   const deposit = o.deposit || 0;
   const balance = o.balanceDue !== undefined ? o.balanceDue : (itemsTotal - deposit);
+  const confirmStatus = getConfirmStatus(o);
   const itemsHtml = o.items.map((it,idx)=>`
     <div class="receipt-item">
       <div class="desc"><b>${escapeHtml(it.name)}</b><div class="tags">${escapeHtml(it.color||'-')} / ${escapeHtml(it.size||'-')} × ${it.qty}</div></div>
       <div style="text-align:right;">
         <div>${fmt(it.price*it.qty)} Ks</div>
-        ${o.status==='active' ? `<button class="btn btn-outline btn-sm" style="margin-top:4px;" onclick="returnItem('${o.id}', ${idx})">↩ ပြန်ရန်</button>` : ''}
+        ${o.status==='active' ? `<button class="btn btn-outline btn-sm no-print" style="margin-top:4px;" onclick="returnItem('${o.id}', ${idx})">↩ ပြန်ရန်</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -1335,6 +1358,7 @@ function renderVoucherDetail(){
     <div class="field"><label>Name</label><input id="editCustName" value="${escapeHtml(o.name)}"></div>
     <div class="field"><label>Phone</label><input id="editCustPhone" value="${escapeHtml(o.phone)}"></div>
     <div class="field"><label>Address</label><textarea id="editCustAddress" rows="2">${escapeHtml(o.address||'')}</textarea></div>
+    <div class="field"><label>စရံငွေ (Deposit) Ks</label><input id="editCustDeposit" type="number" min="0" value="${deposit}"></div>
     <div class="row">
       <button class="btn btn-primary btn-block" onclick="saveCustomerInfo()">Save</button>
       <button class="btn btn-ghost btn-block" onclick="cancelEditCustomerInfo()">Cancel</button>
@@ -1343,7 +1367,7 @@ function renderVoucherDetail(){
     <div class="receipt-row"><span>Name</span><span>${escapeHtml(o.name)}</span></div>
     <div class="receipt-row"><span>Phone</span><span>${escapeHtml(o.phone)}</span></div>
     <div class="receipt-row"><span>Address</span><span style="text-align:right; max-width:60%;">${escapeHtml(o.address||'-')}</span></div>
-    <div style="text-align:right; margin-top:2px;"><button class="btn btn-ghost btn-sm" onclick="toggleEditCustomerInfo()">✎ Name/Phone/Address ပြင်ရန်</button></div>
+    <div class="no-print" style="text-align:right; margin-top:2px;"><button class="btn btn-ghost btn-sm" onclick="toggleEditCustomerInfo()">✎ Name/Phone/Address/Deposit ပြင်ရန်</button></div>
   `;
 
   document.getElementById('detailContent').innerHTML = `
@@ -1356,6 +1380,7 @@ function renderVoucherDetail(){
         <div class="receipt-row"><span>Voucher No</span><b>${escapeHtml(o.voucher)}</b></div>
         <div class="receipt-row"><span>Date</span><span>${new Date(o.date).toLocaleString()}</span></div>
         <div class="receipt-row"><span>Status</span><span>${o.status==='active'?'Active':'Cancelled'}</span></div>
+        ${confirmStatus ? `<div class="receipt-row"><span>Order Status</span><span>${confirmStatus==='pending'?'Pending':'Confirmed'}</span></div>` : ''}
         <div class="receipt-divider"></div>
         ${customerBlock}
         <div class="receipt-divider"></div>
@@ -1375,7 +1400,11 @@ async function saveVoucherAsImage(){
   if(typeof html2canvas === 'undefined'){ showToast('Photo tool load မဖြစ်သေးပါ၊ ခဏနေမှ ထပ်ကြိုးစားပါ'); return; }
   try{
     showToast('Photo ပြင်ဆင်နေသည်...');
-    const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+    const canvas = await html2canvas(el, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      ignoreElements: (node) => node.classList && node.classList.contains('no-print')
+    });
     const link = document.createElement('a');
     link.download = (currentViewingVoucher || 'voucher') + '.png';
     link.href = canvas.toDataURL('image/png');
