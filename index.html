@@ -494,6 +494,11 @@
 
   <!-- STOCK TAB -->
   <div id="stockTab" style="display:none;">
+    <div class="card" id="lowStockCard" style="display:none;">
+      <div class="section-title" style="color:var(--rust);">⚠ Stock နည်းနေသော ပစ္စည်းများ (10 အောက်)</div>
+      <div id="lowStockList"></div>
+    </div>
+
     <div class="card">
       <div class="section-title">Stock အသစ်ထည့်ရန်</div>
       <div class="field"><label>ပစ္စည်းအမည် / Description</label><input id="stkName" placeholder="ဥပမာ - အင်္ကျီ"></div>
@@ -848,7 +853,28 @@ function getStockTree(){
   return tree;
 }
 
+function renderLowStock(){
+  const card = document.getElementById('lowStockCard');
+  const el = document.getElementById('lowStockList');
+  const lowItems = stock.filter(s => s.qty < 10).sort((a,b) => a.qty - b.qty);
+  if(lowItems.length === 0){
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = 'block';
+  el.innerHTML = lowItems.map(s => `
+    <div class="stock-item">
+      <div class="info">
+        <b>${escapeHtml(s.name)}</b>
+        <div class="tags">${escapeHtml(s.color||'-')} / ${escapeHtml(s.size||'-')}</div>
+      </div>
+      <div class="stock-qty low">${s.qty}</div>
+    </div>
+  `).join('');
+}
+
 function renderStock(){
+  renderLowStock();
   const el = document.getElementById('stockList');
   if(stock.length === 0){ el.innerHTML = '<div class="empty-note">Stock မရှိသေးပါ</div>'; return; }
   const tree = getStockTree();
@@ -918,7 +944,12 @@ function deleteStock(id){
 let currentGroupKey = null;
 let currentNameKey = null;
 
-function openAddItem(){
+let itemPickerMode = 'new';
+let itemPickerTargetOrderId = null;
+
+function openAddItem(targetOrderId){
+  itemPickerMode = targetOrderId ? 'append' : 'new';
+  itemPickerTargetOrderId = targetOrderId || null;
   pickedStockId = null;
   currentGroupKey = null;
   currentNameKey = null;
@@ -1070,9 +1101,14 @@ function confirmAddItem(){
   let qty = Number(document.getElementById('pickQty').value);
   if(!qty || qty < 1){ showToast('Qty မှန်ကန်စွာ ထည့်ပါ'); return; }
   if(qty > avail){ showToast(`Stock မလုံလောက်ပါ (${avail} ပဲကျန်ပါသည်)`); return; }
-  currentOrderItems.push({ stockId: s.id, name: s.name, color: s.color, size: s.size, price: s.price, qty });
-  renderOrderItems();
-  closeModal('addItemModal');
+  const item = { stockId: s.id, name: s.name, color: s.color, size: s.size, price: s.price, qty };
+  if(itemPickerMode === 'append'){
+    appendItemToOrder(itemPickerTargetOrderId, item);
+  }else{
+    currentOrderItems.push(item);
+    renderOrderItems();
+    closeModal('addItemModal');
+  }
 }
 
 function addCustomItem(){
@@ -1084,9 +1120,43 @@ function addCustomItem(){
   if(!desc){ showToast('Description ထည့်ပါ'); return; }
   if(!price || price<0){ showToast('Price မှန်ကန်စွာ ထည့်ပါ'); return; }
   if(!qty || qty<1){ showToast('Qty မှန်ကန်စွာ ထည့်ပါ'); return; }
-  currentOrderItems.push({ stockId: null, name: desc, color, size, price, qty });
-  renderOrderItems();
+  const item = { stockId: null, name: desc, color, size, price, qty };
+  if(itemPickerMode === 'append'){
+    appendItemToOrder(itemPickerTargetOrderId, item);
+  }else{
+    currentOrderItems.push(item);
+    renderOrderItems();
+    closeModal('addItemModal');
+  }
+}
+
+async function appendItemToOrder(orderId, item){
+  const o = orders.find(x=>x.id===orderId);
+  if(!o){ closeModal('addItemModal'); return; }
+  if(item.stockId){
+    const s = stock.find(x=>x.id===item.stockId);
+    if(s){
+      if(s.qty < item.qty){ showToast('Stock မလုံလောက်ပါ'); return; }
+      s.qty -= item.qty;
+    }
+  }
+  const existing = item.stockId ? o.items.find(i => i.stockId === item.stockId) : null;
+  if(existing){
+    existing.qty += item.qty;
+  }else{
+    o.items.push(item);
+  }
+  const itemsTotal = o.items.reduce((a,b)=>a+b.price*b.qty,0);
+  o.itemsTotal = itemsTotal;
+  o.total = itemsTotal;
+  o.balanceDue = itemsTotal - (o.deposit || 0);
+
+  await persistAll({ stock, orders });
+  renderStock();
+  renderOrders();
   closeModal('addItemModal');
+  renderVoucherDetail();
+  showToast('Item ထပ်ထည့်ပြီးပါပြီ');
 }
 
 function removeOrderItem(idx){
@@ -1349,10 +1419,11 @@ function renderVoucherDetail(){
       <div class="desc"><b>${escapeHtml(it.name)}</b><div class="tags">${escapeHtml(it.color||'-')} / ${escapeHtml(it.size||'-')} × ${it.qty}</div></div>
       <div style="text-align:right;">
         <div>${fmt(it.price*it.qty)} Ks</div>
-        ${o.status==='active' ? `<button class="btn btn-outline btn-sm no-print" style="margin-top:4px;" onclick="returnItem('${o.id}', ${idx})">↩ ပြန်ရန်</button>` : ''}
+        ${o.status==='active' ? `<button class="btn btn-outline btn-sm no-print" style="margin-top:4px;" onclick="returnItem('${o.id}', ${idx})">🗑 ဖျက်/လျှော့ရန်</button>` : ''}
       </div>
     </div>
   `).join('');
+  const addItemBtn = o.status==='active' ? `<button class="btn btn-ghost btn-block no-print" style="margin-top:8px;" onclick="openAddItem('${o.id}')">+ Item ထပ်ထည့်ရန်</button>` : '';
 
   const customerBlock = editingCustomerInfo ? `
     <div class="field"><label>Name</label><input id="editCustName" value="${escapeHtml(o.name)}"></div>
@@ -1385,6 +1456,7 @@ function renderVoucherDetail(){
         ${customerBlock}
         <div class="receipt-divider"></div>
         ${itemsHtml}
+        ${addItemBtn}
         <div class="receipt-divider"></div>
         <div class="receipt-row"><span>ပစ္စည်းစုစုပေါင်း</span><span>${fmt(itemsTotal)} Ks</span></div>
         <div class="receipt-row"><span>စရံ (Deposit)</span><span>- ${fmt(deposit)} Ks</span></div>
