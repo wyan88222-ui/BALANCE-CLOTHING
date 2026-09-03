@@ -573,6 +573,7 @@
     <div class="field"><label>ဆိုင်လိပ်စာ (Address)</label><textarea id="setShopAddress" rows="2"></textarea></div>
     <div class="field"><label>ဖုန်းနံပါတ် (Phone)</label><input id="setShopPhone"></div>
     <div class="field"><label>Voucher Prefix</label><input id="setVoucherPrefix" maxlength="6" style="text-transform:uppercase;"></div>
+    <div class="field"><label>Notion / Zapier Webhook URL (Optional)</label><input id="setNotionWebhook" placeholder="https://hooks.zapier.com/..."></div>
     <button class="btn btn-primary btn-block" onclick="saveSettings()">Save</button>
     <div class="receipt-divider"></div>
     <div class="field"><label>Password အသစ်ပြောင်းရန် (ဝန်ထမ်းအားလုံးအတွက်)</label><input id="setNewPassword" type="password" placeholder="Password အသစ်"></div>
@@ -594,7 +595,7 @@
 </div>
 
 <script>
-let settings = { shopName:'BALANCE CLOTHING', shopAddress:'', shopPhone:'', voucherPrefix:'BAL', voucherCounter:1, voucherYearMonth:'' };
+let settings = { shopName:'BALANCE CLOTHING', shopAddress:'', shopPhone:'', voucherPrefix:'BAL', voucherCounter:1, voucherYearMonth:'', notionWebhookUrl:'' };
 let stock = [];
 let orders = [];
 let currentOrderItems = [];
@@ -739,6 +740,7 @@ function renderHeader(){
   document.getElementById('setShopAddress').value = settings.shopAddress;
   document.getElementById('setShopPhone').value = settings.shopPhone;
   document.getElementById('setVoucherPrefix').value = settings.voucherPrefix;
+  document.getElementById('setNotionWebhook').value = settings.notionWebhookUrl || '';
 }
 
 function switchTab(tab){
@@ -759,6 +761,7 @@ async function saveSettings(){
   settings.shopAddress = document.getElementById('setShopAddress').value.trim();
   settings.shopPhone = document.getElementById('setShopPhone').value.trim();
   settings.voucherPrefix = (document.getElementById('setVoucherPrefix').value.trim() || 'BAL').toUpperCase();
+  settings.notionWebhookUrl = document.getElementById('setNotionWebhook').value.trim();
   await persist('settings', settings);
   renderHeader();
   closeModal('settingsModal');
@@ -1189,6 +1192,27 @@ function renderOrderItems(){
 }
 
 /* ---------------- ORDERS ---------------- */
+function sendToWebhook(order){
+  if(!settings.notionWebhookUrl) return;
+  const payload = {
+    voucher: order.voucher,
+    name: order.name,
+    phone: order.phone,
+    address: order.address,
+    itemsSummary: order.items.map(i => `${i.name} (${i.color||'-'}/${i.size||'-'}) x${i.qty}`).join(', '),
+    itemsTotal: order.itemsTotal,
+    deposit: order.deposit,
+    balanceDue: order.balanceDue,
+    status: order.status,
+    date: order.date
+  };
+  fetch(settings.notionWebhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).catch(() => { /* fail silently — never block voucher creation */ });
+}
+
 async function saveOrder(){
   const name = document.getElementById('ordName').value.trim();
   const phone = document.getElementById('ordPhone').value.trim();
@@ -1239,6 +1263,7 @@ async function saveOrder(){
   settings.voucherCounter += 1;
 
   await persistAll({ stock, orders, settings });
+  sendToWebhook(order);
   document.getElementById('ordName').value='';
   document.getElementById('ordPhone').value='';
   document.getElementById('ordAddress').value='';
