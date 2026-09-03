@@ -467,6 +467,18 @@
         <div class="field"><label>ဖုန်းနံပါတ် (Ph No)</label><input id="ordPhone" placeholder="09xxxxxxxxx"></div>
       </div>
       <div class="field"><label>လိပ်စာ (Address)</label><textarea id="ordAddress" rows="2" placeholder="ပို့ဆောင်ရန်လိပ်စာ"></textarea></div>
+      <div class="field"><label>ပို့ဆောင်ရေး (Delivery)</label><input id="ordDelivery" list="deliveryOptions" placeholder="KOSPA, Royal Express, ကိုယ်တိုင်ယူ..."></div>
+      <datalist id="deliveryOptions">
+        <option value="ကိုယ်တိုင်ယူ">
+        <option value="KOSPA">
+        <option value="Royal Express">
+        <option value="ANT Delivery">
+        <option value="City Express">
+        <option value="DEX Express">
+        <option value="Grab Express">
+        <option value="Ninja Van">
+      </datalist>
+      <div class="field"><label>မှတ်ချက် (Note)</label><textarea id="ordNote" rows="2" placeholder="အထူးမှတ်ချက်များ"></textarea></div>
 
       <label style="margin-top:4px;">Item List</label>
       <div id="orderItemsList"></div>
@@ -1199,6 +1211,8 @@ function sendToWebhook(order){
     name: order.name,
     phone: order.phone,
     address: order.address,
+    delivery: order.delivery || '',
+    note: order.note || '',
     itemsSummary: order.items.map(i => `${i.name} (${i.color||'-'}/${i.size||'-'}) x${i.qty}`).join(', '),
     itemsTotal: order.itemsTotal,
     deposit: order.deposit,
@@ -1217,6 +1231,8 @@ async function saveOrder(){
   const name = document.getElementById('ordName').value.trim();
   const phone = document.getElementById('ordPhone').value.trim();
   const address = document.getElementById('ordAddress').value.trim();
+  const delivery = document.getElementById('ordDelivery').value.trim();
+  const note = document.getElementById('ordNote').value.trim();
   if(!name){ showToast('အမည် ထည့်ပါ'); return; }
   if(!phone){ showToast('ဖုန်းနံပါတ် ထည့်ပါ'); return; }
   if(currentOrderItems.length===0){ showToast('Item အနည်းဆုံး တစ်ခု ထည့်ပါ'); return; }
@@ -1251,6 +1267,7 @@ async function saveOrder(){
     id: uid(),
     voucher,
     name, phone, address,
+    delivery, note,
     items: currentOrderItems,
     itemsTotal: total,
     deposit,
@@ -1267,6 +1284,8 @@ async function saveOrder(){
   document.getElementById('ordName').value='';
   document.getElementById('ordPhone').value='';
   document.getElementById('ordAddress').value='';
+  document.getElementById('ordDelivery').value='';
+  document.getElementById('ordNote').value='';
   document.getElementById('ordDeposit').value='';
   currentOrderItems = [];
   renderOrderItems();
@@ -1415,6 +1434,8 @@ async function saveCustomerInfo(){
   const name = document.getElementById('editCustName').value.trim();
   const phone = document.getElementById('editCustPhone').value.trim();
   const address = document.getElementById('editCustAddress').value.trim();
+  const delivery = document.getElementById('editCustDelivery').value.trim();
+  const note = document.getElementById('editCustNote').value.trim();
   const deposit = Number(document.getElementById('editCustDeposit').value) || 0;
   if(!name){ showToast('အမည် ထည့်ပါ'); return; }
   if(!phone){ showToast('ဖုန်းနံပါတ် ထည့်ပါ'); return; }
@@ -1422,6 +1443,8 @@ async function saveCustomerInfo(){
   o.name = name;
   o.phone = phone;
   o.address = address;
+  o.delivery = delivery;
+  o.note = note;
   o.deposit = deposit;
   o.balanceDue = itemsTotal - deposit;
   await persist('orders', orders);
@@ -1454,6 +1477,8 @@ function renderVoucherDetail(){
     <div class="field"><label>Name</label><input id="editCustName" value="${escapeHtml(o.name)}"></div>
     <div class="field"><label>Phone</label><input id="editCustPhone" value="${escapeHtml(o.phone)}"></div>
     <div class="field"><label>Address</label><textarea id="editCustAddress" rows="2">${escapeHtml(o.address||'')}</textarea></div>
+    <div class="field"><label>ပို့ဆောင်ရေး (Delivery)</label><input id="editCustDelivery" list="deliveryOptions" value="${escapeHtml(o.delivery||'')}"></div>
+    <div class="field"><label>မှတ်ချက် (Note)</label><textarea id="editCustNote" rows="2">${escapeHtml(o.note||'')}</textarea></div>
     <div class="field"><label>စရံငွေ (Deposit) Ks</label><input id="editCustDeposit" type="number" min="0" value="${deposit}"></div>
     <div class="row">
       <button class="btn btn-primary btn-block" onclick="saveCustomerInfo()">Save</button>
@@ -1463,7 +1488,9 @@ function renderVoucherDetail(){
     <div class="receipt-row"><span>Name</span><span>${escapeHtml(o.name)}</span></div>
     <div class="receipt-row"><span>Phone</span><span>${escapeHtml(o.phone)}</span></div>
     <div class="receipt-row"><span>Address</span><span style="text-align:right; max-width:60%;">${escapeHtml(o.address||'-')}</span></div>
-    <div class="no-print" style="text-align:right; margin-top:2px;"><button class="btn btn-ghost btn-sm" onclick="toggleEditCustomerInfo()">✎ Name/Phone/Address/Deposit ပြင်ရန်</button></div>
+    ${o.delivery ? `<div class="receipt-row"><span>Delivery</span><span>${escapeHtml(o.delivery)}</span></div>` : ''}
+    ${o.note ? `<div class="receipt-row"><span>Note</span><span style="text-align:right; max-width:60%;">${escapeHtml(o.note)}</span></div>` : ''}
+    <div class="no-print" style="text-align:right; margin-top:2px;"><button class="btn btn-ghost btn-sm" onclick="toggleEditCustomerInfo()">✎ Name/Phone/Address/Delivery/Note/Deposit ပြင်ရန်</button></div>
   `;
 
   document.getElementById('detailContent').innerHTML = `
