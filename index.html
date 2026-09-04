@@ -1250,25 +1250,34 @@ function renderOrderItems(){
 /* ---------------- ORDERS ---------------- */
 function sendToWebhook(order){
   if(!settings.notionWebhookUrl) return;
-  const payload = {
-    voucher: order.voucher,
-    name: order.name,
-    phone: order.phone,
-    address: order.address,
-    delivery: order.delivery || '',
-    note: order.note || '',
-    itemsSummary: order.items.map(i => `${i.name} (${i.color||'-'}/${i.size||'-'}) x${i.qty}`).join(', '),
-    itemsTotal: order.itemsTotal,
-    deposit: order.deposit,
-    balanceDue: order.balanceDue,
-    status: order.status,
-    date: order.date
-  };
-  fetch(settings.notionWebhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  }).catch(() => { /* fail silently — never block voucher creation */ });
+  // One row per item — makes each field (item, color, size, delivery) filterable in Notion
+  const items = order.items && order.items.length ? order.items : [{ name:'', color:'', size:'', qty:0, price:0 }];
+  items.forEach(it => {
+    const payload = {
+      voucher: order.voucher,
+      name: order.name,
+      phone: order.phone,
+      address: order.address,
+      delivery: order.delivery || '',
+      note: order.note || '',
+      item: it.name || '',
+      color: it.color || '',
+      size: it.size || '',
+      qty: it.qty || 0,
+      price: it.price || 0,
+      lineTotal: (it.price || 0) * (it.qty || 0),
+      itemsTotal: order.itemsTotal,
+      deposit: order.deposit,
+      balanceDue: order.balanceDue,
+      status: order.status,
+      date: order.date
+    };
+    fetch(settings.notionWebhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => { /* fail silently — never block voucher creation */ });
+  });
 }
 
 async function saveOrder(){
